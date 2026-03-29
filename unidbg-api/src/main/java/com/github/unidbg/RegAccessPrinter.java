@@ -7,19 +7,38 @@ import unicorn.Arm64Const;
 import unicorn.ArmConst;
 
 import java.util.Locale;
+import java.util.Map;
+import java.util.HashMap;
 
-final class RegAccessPrinter {
+public final class RegAccessPrinter {
 
     private final long address;
-    private final Instruction instruction;
     private final short[] accessRegs;
     private boolean forWriteRegs;
+    private final Map<Integer, Long> oldValues = new HashMap<>();
+    
+    private final Map<Short, Integer> unicornRegIds;
+    private final Map<Short, String> regNames;
 
-    public RegAccessPrinter(long address, Instruction instruction, short[] accessRegs, boolean forWriteRegs) {
+    public RegAccessPrinter(long address, short[] accessRegs, Map<Short, Integer> unicornRegIds, Map<Short, String> regNames, boolean forWriteRegs, Backend backend) {
         this.address = address;
-        this.instruction = instruction;
         this.accessRegs = accessRegs;
+        this.unicornRegIds = unicornRegIds;
+        this.regNames = regNames;
         this.forWriteRegs = forWriteRegs;
+
+        if (forWriteRegs && backend != null) {
+            for (short reg : accessRegs) {
+                Integer regIdBoxed = unicornRegIds.get(reg);
+                int regId = regIdBoxed != null ? regIdBoxed : 0;
+                if (regId != 0 && regId != ArmConst.UC_ARM_REG_CPSR && regId != Arm64Const.UC_ARM64_REG_NZCV) {
+                    try {
+                        long val = backend.reg_read(regId).longValue();
+                        oldValues.put(regId, val);
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
     }
 
     public void print(Emulator<?> emulator, Backend backend, StringBuilder builder, long address) {
@@ -27,7 +46,19 @@ final class RegAccessPrinter {
             return;
         }
         for (short reg : accessRegs) {
-            int regId = instruction.mapToUnicornReg(reg);
+            Integer regIdBoxed = unicornRegIds.get(reg);
+            int regId = regIdBoxed != null ? regIdBoxed : 0;
+            String regName = regNames.get(reg);
+            if (regName == null) regName = "unk";
+            
+            if (forWriteRegs && oldValues.containsKey(regId)) {
+                try {
+                    long currentVal = backend.reg_read(regId).longValue();
+                    if (currentVal == oldValues.get(regId).longValue()) {
+                        continue;
+                    }
+                } catch (Exception ignored) {}
+            }
             if (emulator.is32Bit()) {
                 if ((regId >= ArmConst.UC_ARM_REG_R0 && regId <= ArmConst.UC_ARM_REG_R12) ||
                         regId == ArmConst.UC_ARM_REG_LR || regId == ArmConst.UC_ARM_REG_SP ||
@@ -45,8 +76,24 @@ final class RegAccessPrinter {
                                 cpsr.isOverflow() ? 1 : 0));
                     } else {
                         int value = backend.reg_read(regId).intValue();
-                        builder.append(' ').append(instruction.regName(reg)).append("=0x").append(Long.toHexString(value & 0xffffffffL));
+                        builder.append(' ').append(regName).append("=0x").append(Long.toHexString(value & 0xffffffffL));
                     }
+                } else if (regId >= ArmConst.UC_ARM_REG_D0 && regId <= ArmConst.UC_ARM_REG_D31) {
+                    if (forWriteRegs) {
+                        builder.append(" =>");
+                        forWriteRegs = false;
+                    }
+                    try {
+                        byte[] vector = backend.reg_read_vector(regId);
+                        builder.append("\n        ").append(regName).append("=").append(formatVectorHex(vector));
+                    } catch (Exception ignored) {}
+                } else if (regId >= ArmConst.UC_ARM_REG_S0 && regId <= ArmConst.UC_ARM_REG_S31) {
+                    if (forWriteRegs) {
+                        builder.append("\n      => ");
+                        forWriteRegs = false;
+                    }
+                    int value = backend.reg_read(regId).intValue();
+                    builder.append("\n        ").append(regName).append("=0x").append(Long.toHexString(value & 0xffffffffL));
                 }
             } else {
                 if ((regId >= Arm64Const.UC_ARM64_REG_X0 && regId <= Arm64Const.UC_ARM64_REG_X28) ||
@@ -72,7 +119,7 @@ final class RegAccessPrinter {
                         }
                     } else {
                         long value = backend.reg_read(regId).longValue();
-                        builder.append(' ').append(instruction.regName(reg)).append("=0x").append(Long.toHexString(value));
+                        builder.append(' ').append(regName).append("=0x").append(Long.toHexString(value));
                     }
                 } else if (regId >= Arm64Const.UC_ARM64_REG_W0 && regId <= Arm64Const.UC_ARM64_REG_W30) {
                     if (forWriteRegs) {
@@ -80,10 +127,59 @@ final class RegAccessPrinter {
                         forWriteRegs = false;
                     }
                     int value = backend.reg_read(regId).intValue();
-                    builder.append(' ').append(instruction.regName(reg)).append("=0x").append(Long.toHexString(value & 0xffffffffL));
+                    builder.append(' ').append(regName).append("=0x").append(Long.toHexString(value & 0xffffffffL));
+                } else if (regId >= Arm64Const.UC_ARM64_REG_Q0 && regId <= Arm64Const.UC_ARM64_REG_Q31 || regId >= Arm64Const.UC_ARM64_REG_V0 && regId <= Arm64Const.UC_ARM64_REG_V31) {
+                    if (forWriteRegs) {
+                        builder.append(" =>");
+                        forWriteRegs = false;
+                    }
+                    try {
+                        byte[] vector = backend.reg_read_vector(regId);
+                        builder.append(' ').append(regName).append("=0x").append(formatVectorHex(vector));
+                    } catch (Exception ignored) {}
+                } else if (regId >= Arm64Const.UC_ARM64_REG_D0 && regId <= Arm64Const.UC_ARM64_REG_D31) {
+                    if (forWriteRegs) {
+                        builder.append(" =>");
+                        forWriteRegs = false;
+                    }
+                    try {
+                        long value = backend.reg_read(regId).longValue();
+                        builder.append(' ').append(regName).append("=0x").append(Long.toHexString(value));
+                    } catch (Exception ignored) {}
+                } else if (regId >= Arm64Const.UC_ARM64_REG_S0 && regId <= Arm64Const.UC_ARM64_REG_S31) {
+                    if (forWriteRegs) {
+                        builder.append(" =>");
+                        forWriteRegs = false;
+                    }
+                    try {
+                        int value = backend.reg_read(regId).intValue();
+                        builder.append(' ').append(regName).append("=0x").append(Long.toHexString(value & 0xffffffffL));
+                    } catch (Exception ignored) {}
                 }
             }
         }
+    }
+
+    private static String formatVectorHex(byte[] vector) {
+        if (vector == null || vector.length == 0) return "0";
+        StringBuilder hex = new StringBuilder();
+        boolean allZero = true;
+        boolean leading = true;
+        for (int i = vector.length - 1; i >= 0; i--) {
+            byte b = vector[i];
+            if (b != 0) allZero = false;
+            
+            if (!allZero) {
+                 if (leading) {
+                     hex.append(Integer.toHexString(b & 0xFF));
+                     leading = false;
+                 } else {
+                     hex.append(String.format("%02x", b & 0xFF));
+                 }
+            }
+        }
+        if (allZero) return "0";
+        return hex.toString();
     }
 
 }

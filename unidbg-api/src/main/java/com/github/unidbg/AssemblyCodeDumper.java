@@ -125,12 +125,18 @@ public class AssemblyCodeDumper implements CodeHook, TraceHook {
                         RegsAccess regsAccess = ins.regsAccess();
                         if (regsAccess != null) {
                             short[] regsRead = regsAccess.getRegsRead();
-                            RegAccessPrinter readPrinter = new RegAccessPrinter(address, ins, regsRead, false);
+                            java.util.Map<Short, Integer> readIds = new java.util.HashMap<>();
+                            java.util.Map<Short, String> readNames = new java.util.HashMap<>();
+                            for (short r : regsRead) { readIds.put(r, ins.mapToUnicornReg(r)); readNames.put(r, ins.regName(r)); }
+                            RegAccessPrinter readPrinter = new RegAccessPrinter(address, regsRead, readIds, readNames, false, backend);
                             readPrinter.print(emulator, backend, builder, address);
 
                             short[] regWrite = regsAccess.getRegsWrite();
                             if (regWrite.length > 0) {
-                                lastInstructionWritePrinter = new RegAccessPrinter(address + size, ins, regWrite, true);
+                                java.util.Map<Short, Integer> writeIds = new java.util.HashMap<>();
+                                java.util.Map<Short, String> writeNames = new java.util.HashMap<>();
+                                for (short r : regWrite) { writeIds.put(r, ins.mapToUnicornReg(r)); writeNames.put(r, ins.regName(r)); }
+                                lastInstructionWritePrinter = new RegAccessPrinter(address + size, regWrite, writeIds, writeNames, true, backend);
                             }
                         }
                     }

@@ -8,4 +8,18 @@ public interface TraceHook {
 
     void stopTrace();
 
+    default void setDebugSymbolResolution(boolean debugSymbolResolution) {
+    }
+
+    default TraceHook setDisableSMC(boolean disableSMC) {
+        return this;
+    }
+
+    default TraceHook setDisableHexdump(boolean disableHexdump) {
+        return this;
+    }
+
+    default TraceHook setDisableFunctionCall(boolean disableFunctionCall) {
+        return this;
+    }
 }

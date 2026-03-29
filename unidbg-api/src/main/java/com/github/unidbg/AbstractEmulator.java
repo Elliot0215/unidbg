@@ -5,6 +5,8 @@ import com.github.unidbg.arm.backend.Backend;
 import com.github.unidbg.arm.backend.BackendFactory;
 import com.github.unidbg.arm.backend.ReadHook;
 import com.github.unidbg.arm.backend.WriteHook;
+import com.github.unidbg.arm.backend.CodeHook;
+import com.github.unidbg.arm.backend.UnHook;
 import com.github.unidbg.arm.context.RegisterContext;
 import com.github.unidbg.debugger.DebugServer;
 import com.github.unidbg.debugger.Debugger;
@@ -25,6 +27,7 @@ import com.github.unidbg.spi.Dlfcn;
 import com.github.unidbg.thread.*;
 import com.github.unidbg.unix.UnixSyscallHandler;
 import com.github.unidbg.utils.Inspector;
+import com.github.unidbg.trace.text.AssemblyCodeTextDumper;
 import com.sun.jna.Pointer;
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
@@ -518,6 +521,72 @@ public abstract class AbstractEmulator<T extends NewFileIO> implements Emulator<
         Context ctx = contextStack.pop();
         ctx.restoreAndFree(backend);
         return ctx.off;
+    }
+
+    @Override
+    public final TraceHook traceCodeText() {
+        return traceCodeText(1, 0);
+    }
+
+    @Override
+    public final TraceHook traceCodeText(long begin, long end) {
+        return traceCodeText(begin, end, (java.io.PrintStream) null, null);
+    }
+
+    @Override
+    public final TraceHook traceCodeText(String redirectFile) {
+        return traceCodeText(1, 0, redirectFile);
+    }
+
+    @Override
+    public final TraceHook traceCodeText(long begin, long end, String redirectFile) {
+        try {
+            java.io.File f = new java.io.File(redirectFile);
+            if (f.exists()) {
+                f.delete();
+            }
+            return traceCodeText(begin, end, new java.io.PrintStream(f), null);
+        } catch (java.io.FileNotFoundException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Override
+    public final TraceHook traceCodeText(long begin, long end, java.io.PrintStream redirect) {
+        return traceCodeText(begin, end, redirect, null);
+    }
+
+    @Override
+    public TraceHook traceCodeText(long begin, long end, java.io.PrintStream redirect, TraceCodeListener listener) {
+        final AssemblyCodeTextDumper hook = new AssemblyCodeTextDumper(this, begin, end, redirect, listener);
+        
+        ReadHook readHook = new ReadHook() {
+            @Override
+            public void hook(Backend backend, long address, int size, Object user) {
+                hook.onMemoryRead(backend, address, size);
+            }
+            @Override
+            public void onAttach(UnHook unHook) { hook.addUnHook(unHook); }
+            @Override
+            public void detach() {}
+        };
+        
+        WriteHook writeHook = new WriteHook() {
+            @Override
+            public void hook(Backend backend, long address, int size, long value, Object user) {
+                hook.onMemoryWrite(backend, address, size, value);
+            }
+            @Override
+            public void onAttach(UnHook unHook) { hook.addUnHook(unHook); }
+            @Override
+            public void detach() {}
+        };
+        
+        backend.hook_add_new(readHook, 1, 0, this);
+        backend.hook_add_new(writeHook, 1, 0, this);
+        backend.hook_add_new((CodeHook) hook, begin, end, this);
+        
+        return hook;
     }
 
 }
