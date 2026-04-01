@@ -30,8 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public abstract class UnixSyscallHandler<T extends NewFileIO> implements SyscallHandler<T> {
 
@@ -395,18 +393,19 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         return file.fcntl(emulator, cmd, arg);
     }
 
-    private static final Pattern FD_PATTERN = Pattern.compile("/proc/self/fd/(\\d+)");
-
     protected int readlink(Emulator<?> emulator, String path, Pointer buf, int bufSize) {
         if (log.isDebugEnabled()) {
             log.debug("readlink path={}, buf={}, bufSize={}", path, buf, bufSize);
         }
-        Matcher matcher = FD_PATTERN.matcher(path);
-        if (matcher.find()) {
-            int fd = Integer.parseInt(matcher.group(1));
-            FileIO io = fdMap.get(fd);
-            if (io != null) {
-                path = io.getPath();
+        if (path.startsWith("/proc/" + emulator.getPid() + "/fd/") || path.startsWith("/proc/self/fd/")) {
+            try {
+                int fd = Integer.parseInt(path.substring(path.lastIndexOf("/") + 1));
+                FileIO io = fdMap.get(fd);
+                if (io != null) {
+                    path = io.getPath();
+                }
+            } catch (NumberFormatException e) {
+                // ignore
             }
         }
         buf.setString(0, path);
@@ -579,7 +578,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         random.nextBytes(bytes);
         buf.write(0, bytes, 0, bytes.length);
         if (log.isDebugEnabled()) {
-            log.debug(Inspector.inspectString(bytes, "getrandom buf=" + buf + ", bufSize=" + bufSize + ", flags=0x" + Integer.toHexString(flags)));
+            log.debug(Inspector.inspectString(bytes, "[随机点] getrandom buf=" + buf + ", bufSize=" + bufSize + ", flags=0x" + Integer.toHexString(flags)));
         }
         return bufSize;
     }
