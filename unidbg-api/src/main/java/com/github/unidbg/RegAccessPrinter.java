@@ -171,25 +171,34 @@ public final class RegAccessPrinter {
     }
 
     private static String formatVectorHex(byte[] vector) {
-        if (vector == null || vector.length == 0) return "0";
+        // if (vector == null || vector.length == 0) return "0";
+        // StringBuilder hex = new StringBuilder();
+        // boolean allZero = true;
+        // boolean leading = true;
+        // for (int i = vector.length - 1; i >= 0; i--) {
+        //     byte b = vector[i];
+        //     if (b != 0) allZero = false;
+        //
+        //     if (!allZero) {
+        //          if (leading) {
+        //              hex.append(Integer.toHexString(b & 0xFF));
+        //              leading = false;
+        //          } else {
+        //              hex.append(String.format("%02x", b & 0xFF));
+        //          }
+        //     }
+        // }
+        // if (allZero) return "0";
+        // return hex.toString();
+        if (vector == null) return "0";
         StringBuilder hex = new StringBuilder();
-        boolean allZero = true;
-        boolean leading = true;
+        // 从高位字节往低位字节打印
         for (int i = vector.length - 1; i >= 0; i--) {
-            byte b = vector[i];
-            if (b != 0) allZero = false;
-            
-            if (!allZero) {
-                 if (leading) {
-                     hex.append(Integer.toHexString(b & 0xFF));
-                     leading = false;
-                 } else {
-                     hex.append(String.format("%02x", b & 0xFF));
-                 }
-            }
+            hex.append(String.format("%02x", vector[i] & 0xFF));
         }
-        if (allZero) return "0";
-        return hex.toString();
+        // 移除开头的多余 0，保留至少一位
+        String res = hex.toString().replaceFirst("^0+(?!$)", "");
+        return res.isEmpty() ? "0" : res;
     }
 
 }

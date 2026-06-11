@@ -17,6 +17,18 @@ import java.util.Map;
 
 public abstract class Module {
 
+    public static final class ImportedSymbol {
+        public final String moduleName;
+        public final String symbolName;
+        public final long targetAddress;
+
+        public ImportedSymbol(String moduleName, String symbolName, long targetAddress) {
+            this.moduleName = moduleName;
+            this.symbolName = symbolName;
+            this.targetAddress = targetAddress;
+        }
+    }
+
     public final String name;
     public final long base;
     public final long size;
@@ -73,6 +85,10 @@ public abstract class Module {
      */
     public Collection<Symbol> getExportedSymbols() {
         return Collections.emptyList();
+    }
+
+    public ImportedSymbol findImportedSymbolByRelocationAddress(long relocationAddress) {
+        return null;
     }
 
     protected final Symbol findDependencySymbolByName(String name) {

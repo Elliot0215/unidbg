@@ -144,24 +144,7 @@ public class AssemblyCodeTextDumper implements CodeHook, TraceHook {
                     regNamesRead.put(r, ins.regName(r));
                 }
 
-                short[] rawWrite = regsAccess.getRegsWrite();
-                if (rawWrite.length > 0 && (mnemonic != null && (mnemonic.startsWith("st") || mnemonic.equals("push")))) {
-                    int newLen = 0;
-                    for (short r : rawWrite) {
-                        String rn = ins.regName(r);
-                        if (rn != null && !rn.startsWith("q") && !rn.startsWith("d") && !rn.startsWith("v")) newLen++;
-                    }
-                    short[] filtered = new short[newLen];
-                    int idx = 0;
-                    for (short r : rawWrite) {
-                        String rn = ins.regName(r);
-                        if (rn != null && !rn.startsWith("q") && !rn.startsWith("d") && !rn.startsWith("v")) filtered[idx++] = r;
-                    }
-                    this.regWrite = filtered;
-                } else {
-                    this.regWrite = rawWrite;
-                }
-
+                this.regWrite = regsAccess.getRegsWrite();
                 if (this.regWrite != null) {
                     for (short r : this.regWrite) {
                         unicornRegIdsWrite.put(r, ins.mapToUnicornReg(r));
@@ -469,6 +452,9 @@ public class AssemblyCodeTextDumper implements CodeHook, TraceHook {
                     }
                 }
                 if (this.svcMemoryBase > 0 && address >= this.svcMemoryBase && address < this.svcMemoryEnd) {
+                    if (debugSymbolResolution) {
+                        log.info("[TraceDebug] PC 0x{} is in SvcMemory, ignoring.", Long.toHexString(address));
+                    }
                     this.pendingMemoryDumps.clear();
                     this.bufferedInstruction = null;
                     return; // Skip tracing framework SVC memory bounds
@@ -631,8 +617,9 @@ public class AssemblyCodeTextDumper implements CodeHook, TraceHook {
                 // Tracking structure
                 long returnAddr = ins.getAddress() + ins.getSize();
                 returnAddr &= ~1L;
-                long[] args = new long[4];
-                for (int i=0; i<4; i++) args[i] = getArgRegValue(backend, i, is64Bit);
+                int argCount = is64Bit ? 8 : 4;
+                long[] args = new long[argCount];
+                for (int i=0; i<argCount; i++) args[i] = getArgRegValue(backend, i, is64Bit);
                 PendingCall call = new PendingCall(symbol.moduleName, symbol.funcName, returnAddr, symbol.isJni, args);
 
                 // Formatting C-style
@@ -646,7 +633,15 @@ public class AssemblyCodeTextDumper implements CodeHook, TraceHook {
                     }
                 }
                 if (callString == null) {
-                    callString = (symbol.moduleName != null ? symbol.moduleName + "::" : "") + symbol.funcName + "(X0=0x" + Long.toHexString(args[0]) + ", X1=0x" + Long.toHexString(args[1]) + ")";
+                    StringBuilder fbSb = new StringBuilder();
+                    fbSb.append(symbol.moduleName != null ? symbol.moduleName + "::" : "").append(symbol.funcName).append("(");
+                    String[] regNames = is64Bit ? new String[]{"X0","X1","X2","X3","X4","X5","X6","X7"} : new String[]{"R0","R1","R2","R3"};
+                    for (int i = 0; i < args.length; i++) {
+                        if (i > 0) fbSb.append(", ");
+                        fbSb.append(regNames[i]).append("=0x").append(Long.toHexString(args[i]));
+                    }
+                    fbSb.append(")");
+                    callString = fbSb.toString();
                 }
                 
                 call.funcAlias = callString;
@@ -1033,9 +1028,23 @@ public class AssemblyCodeTextDumper implements CodeHook, TraceHook {
             long gotAddr = parsePltStubGotAddress(pltAddr, stubCode, is64Bit);
             if (gotAddr == 0) return null;
 
+            Module.ImportedSymbol importedSymbol = pltModule.findImportedSymbolByRelocationAddress(gotAddr);
+            if (importedSymbol != null && importedSymbol.symbolName != null && !importedSymbol.symbolName.isEmpty()) {
+                SymbolInfo info = new SymbolInfo();
+                info.moduleName = importedSymbol.moduleName == null ? pltModule.name : importedSymbol.moduleName;
+                if (isJniSymbolCheck(importedSymbol.symbolName, info.moduleName)) {
+                    info.isJni = true;
+                    info.funcName = extractJniFunctionName(importedSymbol.symbolName);
+                } else {
+                    info.isJni = false;
+                    info.funcName = importedSymbol.symbolName;
+                }
+                return info;
+            }
+
             int ptrSize = is64Bit ? 8 : 4;
             byte[] gotEntry = backend.mem_read(gotAddr, ptrSize);
-            if (gotEntry == null) return null;
+            if (gotEntry == null) return createPltFallbackSymbol(pltAddr, pltModule);
 
             long funcAddr = 0;
             for (int i = ptrSize - 1; i >= 0; i--) {
@@ -1050,7 +1059,7 @@ public class AssemblyCodeTextDumper implements CodeHook, TraceHook {
                 if (svcInfo != null) {
                     return svcInfo;
                 }
-                return null;
+                return createPltFallbackSymbol(pltAddr, pltModule);
             }
 
             // Strict validation: If the GOT points to the SAME module, it's very likely an unresolved lazy-binding PLT0 stub.
@@ -1058,16 +1067,18 @@ public class AssemblyCodeTextDumper implements CodeHook, TraceHook {
             boolean isSameModule = (funcModule == pltModule);
 
             Symbol funcSymbol = funcModule.findClosestSymbolByAddress(funcAddr, false);
-            if (funcSymbol == null) return null;
+            if (funcSymbol == null) return createPltFallbackSymbol(pltAddr, pltModule);
             
             if (isSameModule) {
-                if (Math.abs(funcAddr - funcSymbol.getAddress()) > 4) return null;
+                if (Math.abs(funcAddr - funcSymbol.getAddress()) > 4) return createPltFallbackSymbol(pltAddr, pltModule);
             } else {
-                if (Math.abs(funcAddr - funcSymbol.getAddress()) > SYMBOL_MAX_OFFSET) return null;
+                if (Math.abs(funcAddr - funcSymbol.getAddress()) > SYMBOL_MAX_OFFSET) return createPltFallbackSymbol(pltAddr, pltModule);
             }
 
             String symbolName = funcSymbol.getName();
-            if (symbolName == null || symbolName.equals("start") || symbolName.equals("_start") || symbolName.isEmpty()) return null;
+            if (symbolName == null || symbolName.equals("start") || symbolName.equals("_start") || symbolName.isEmpty()) {
+                return createPltFallbackSymbol(pltAddr, pltModule);
+            }
 
             info.moduleName = funcModule.name;
             if (isJniSymbolCheck(symbolName, funcModule.name)) {
@@ -1081,6 +1092,14 @@ public class AssemblyCodeTextDumper implements CodeHook, TraceHook {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private SymbolInfo createPltFallbackSymbol(long pltAddr, Module pltModule) {
+        SymbolInfo info = new SymbolInfo();
+        info.moduleName = pltModule.name;
+        info.funcName = "plt_" + Long.toHexString(pltAddr - pltModule.base);
+        info.isJni = false;
+        return info;
     }
 
     private boolean isJniSymbolCheck(String symbolName, String moduleName) {

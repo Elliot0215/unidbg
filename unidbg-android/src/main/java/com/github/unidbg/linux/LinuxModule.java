@@ -155,6 +155,13 @@ public class LinuxModule extends Module {
     }
 
     final Map<String, ModuleSymbol> resolvedSymbols = new HashMap<>();
+    private final Map<Long, Module.ImportedSymbol> importedSymbolsByRelocationAddress = new HashMap<>();
+
+    void registerImportedSymbol(long relocationAddress, String moduleName, String symbolName, long targetAddress) {
+        if (relocationAddress != 0 && symbolName != null && !symbolName.isEmpty()) {
+            importedSymbolsByRelocationAddress.put(relocationAddress, new Module.ImportedSymbol(moduleName, symbolName, targetAddress));
+        }
+    }
 
     @Override
     public Symbol findSymbolByName(String name, boolean withDependencies) {
@@ -294,6 +301,11 @@ public class LinuxModule extends Module {
         } catch (IOException e) {
             return java.util.Collections.emptyList();
         }
+    }
+
+    @Override
+    public Module.ImportedSymbol findImportedSymbolByRelocationAddress(long relocationAddress) {
+        return importedSymbolsByRelocationAddress.get(relocationAddress);
     }
 
     @Override
