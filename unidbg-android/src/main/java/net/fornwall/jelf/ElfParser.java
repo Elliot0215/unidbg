@@ -14,7 +14,19 @@ class ElfParser implements ElfDataIn {
 	}
 
 	void seek(long offset) {
-		fsFile.position((int) offset);
+		int pos = (int) offset;
+		// 边界检查：确保 position 不超过 limit
+		if (pos > fsFile.limit()) {
+			pos = fsFile.limit();
+		}
+		if (pos < 0) {
+			pos = 0;
+		}
+		fsFile.position(pos);
+	}
+
+	int getCapacity() {
+		return fsFile.capacity();
 	}
 
 	/**
@@ -34,8 +46,19 @@ class ElfParser implements ElfDataIn {
 
 	@Override
 	public short readUnsignedByte() {
+		if (!fsFile.hasRemaining()) {
+			return 0; // 返回0而不是抛出异常
+		}
 		int val = fsFile.get() & 0xff;
 		return (short) val;
+	}
+
+	boolean hasRemaining() {
+		return fsFile.hasRemaining();
+	}
+
+	int remaining() {
+		return fsFile.remaining();
 	}
 
 	@Override
@@ -105,8 +128,12 @@ class ElfParser implements ElfDataIn {
 
 	ByteBuffer readBuffer(int length) {
 		int limit = fsFile.limit();
+		int position = fsFile.position();
+		int capacity = fsFile.capacity();
+		// 确保不会超出缓冲区容量
+		int newLimit = Math.min(position + length, capacity);
 		try {
-			fsFile.limit(fsFile.position() + length);
+			fsFile.limit(newLimit);
 			return fsFile.slice();
 		} finally {
 			fsFile.limit(limit);

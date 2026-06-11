@@ -140,9 +140,18 @@ public class ElfSegment {
 			ptLoad = new MemoizedObject<PtLoadData>() {
 				@Override
 				protected PtLoadData computeValue() throws ElfException {
-					parser.seek(ElfSegment.this.offset);
-					ByteBuffer buffer = parser.readBuffer((int) file_size);
-					return new PtLoadData(buffer, file_size);
+					long segOffset = ElfSegment.this.offset;
+					long segFileSize = file_size;
+					int capacity = parser.getCapacity();
+					// 边界检查：如果 offset 超出文件大小，返回空数据
+					if (segOffset >= capacity) {
+						return new PtLoadData(ByteBuffer.allocate(0), 0);
+					}
+					parser.seek(segOffset);
+					// 调整读取大小，确保不超出文件边界
+					int readSize = (int) Math.min(segFileSize, capacity - segOffset);
+					ByteBuffer buffer = parser.readBuffer(readSize);
+					return new PtLoadData(buffer, readSize);
 				}
 			};
 			break;

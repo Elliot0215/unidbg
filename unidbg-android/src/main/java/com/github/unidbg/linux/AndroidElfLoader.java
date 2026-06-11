@@ -622,7 +622,9 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
 
         SymbolLocator dynsym = dynamicStructure.getSymbolStructure();
         if (dynsym == null) {
-            throw new IllegalStateException("dynsym is null");
+            log.warn("dynsym is null for {}, SO may be packed/encrypted", libraryFile.getName());
+            // Symbol table parsing skipped due to packed/encrypted SO, using empty symbol locator as fallback
+            dynsym = new EmptySymbolLocator();
         }
         ElfSection symbolTableSection = null;
         try {
@@ -645,7 +647,9 @@ public class AndroidElfLoader extends AbstractLoader<AndroidFileIO> implements M
                 for (Map.Entry<String, ModuleSymbol> entry : linuxModule.resolvedSymbols.entrySet()) {
                     ElfSymbol symbol = module.getELFSymbolByName(entry.getKey());
                     if (symbol != null && !symbol.isUndef()) {
-                        entry.getValue().relocation(emulator, module, symbol);
+                        long value = entry.getValue().relocation(emulator, module, symbol);
+                        linuxModule.registerImportedSymbol(Pointer.nativeValue(entry.getValue().getRelocationAddr()),
+                                module.name, symbol.getName(), value);
                     }
                 }
                 linuxModule.resolvedSymbols.clear();
