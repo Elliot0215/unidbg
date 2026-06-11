@@ -136,6 +136,9 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                 case 17:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, getcwd(emulator));
                     return;
+                // case 49: // chdir
+                //     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, 0);
+                //     return;
                 case 19:
                     backend.reg_write(Arm64Const.UC_ARM64_REG_X0, eventfd2(emulator));
                     return;
@@ -1224,8 +1227,10 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
         return pointer.toUIntPeer();
     }
 
+    private static final int PR_SET_DUMPABLE = 3;
     private static final int PR_SET_NAME = 15;
     private static final int PR_SET_NO_NEW_PRIVS = 38;
+    private static final int PR_GET_NO_NEW_PRIVS = 39;
     private static final int PR_SET_THP_DISABLE = 41;
     private static final int BIONIC_PR_SET_VMA = 0x53564d41;
     private static final int PR_SET_PTRACER = 0x59616d61;
@@ -1260,6 +1265,8 @@ public class ARM64SyscallHandler extends AndroidSyscallHandler {
                 return 0;
             case PR_SET_NO_NEW_PRIVS:
             case PR_SET_THP_DISABLE:
+            case PR_SET_DUMPABLE:
+            case PR_GET_NO_NEW_PRIVS:
                 return 0;
             default:
                 throw new UnsupportedOperationException("option=" + option);

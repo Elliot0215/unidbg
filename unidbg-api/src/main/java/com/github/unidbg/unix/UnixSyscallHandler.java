@@ -180,7 +180,9 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
     protected abstract T createByteArrayFileIO(String pathname, int oflags, byte[] data);
 
     protected long currentTimeMillis() {
-        return System.currentTimeMillis();
+        long timestamp = System.currentTimeMillis();
+        log.info("[随机点] 获取时间戳: " + timestamp + " 0x" + Long.toHexString(timestamp));
+        return timestamp;
     }
 
     @SuppressWarnings("unused")
@@ -577,9 +579,7 @@ public abstract class UnixSyscallHandler<T extends NewFileIO> implements Syscall
         byte[] bytes = new byte[bufSize];
         random.nextBytes(bytes);
         buf.write(0, bytes, 0, bytes.length);
-        if (log.isDebugEnabled()) {
-            log.debug(Inspector.inspectString(bytes, "[随机点] getrandom buf=" + buf + ", bufSize=" + bufSize + ", flags=0x" + Integer.toHexString(flags)));
-        }
+        log.info(Inspector.inspectString(bytes, "[随机点] getrandom buf=" + buf + ", bufSize=" + bufSize + ", flags=0x" + Integer.toHexString(flags)));
         return bufSize;
     }
 
